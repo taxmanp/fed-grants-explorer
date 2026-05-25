@@ -57,6 +57,31 @@ def search_grants(
     response.raise_for_status()
     return pd.DataFrame(response.json()["results"])
 
+def uninvert_recipient_name(name: str) -> str:
+    """Detect USAspending's inverted name format and flip it to natural order.
+
+    USAspending stores some names like 'HEALTH CARE SERVICES, CALIFORNIA DEPARTMENT OF'.
+    This function turns those into 'CALIFORNIA DEPARTMENT OF HEALTH CARE SERVICES'.
+    Names that aren't inverted (no comma, or the part after the comma doesn't end in 'OF')
+    are returned unchanged.
+    """
+    if "," not in name:
+        return name
+    head, _, modifier = name.rpartition(",")
+    modifier = modifier.strip()
+    if modifier.upper().endswith("OF"):
+        return f"{modifier} {head.strip()}"
+    return name
+
+def format_grants_for_display(grants: pd.DataFrame) -> str:
+    """Format a grants DataFrame as a readable table with currency amounts."""
+    display_cols = ["Recipient Name", "Award Amount", "Awarding Sub Agency"]
+    formatted = grants[display_cols].copy()
+    formatted["Recipient Name"] = formatted["Recipient Name"].apply(uninvert_recipient_name)
+    return formatted.to_string(
+        index=False,
+        formatters={"Award Amount": "${:,.0f}".format},
+    )
 
 def main() -> None:
     print("Fetching list of top-tier federal agencies...")
@@ -66,7 +91,7 @@ def main() -> None:
 
     print("\nFetching top 10 HHS grants for FY2024...\n")
     grants = search_grants("Department of Health and Human Services", 2024)
-    print(grants.to_string(index=False))
+    print(format_grants_for_display(grants))
 
 
 if __name__ == "__main__":
