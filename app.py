@@ -53,7 +53,7 @@ with st.sidebar:
     selected_agency = st.selectbox("Agency", agency_options, index=default_idx)
 
     fiscal_year = st.number_input(
-        "Fiscal Year", min_value=2008, max_value=2025, value=2024, step=1
+        "Fiscal Year", min_value=2008, max_value=2026, value=2024, step=1
     )
 
     grant_limit = st.slider(
