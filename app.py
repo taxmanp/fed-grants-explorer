@@ -93,14 +93,21 @@ fig = px.bar(
     orientation="h",
     labels={"Award Amount": "Total Awarded ($)", "Awarding Sub Agency": ""},
 )
-fig.update_layout(showlegend=False, height=400, margin=dict(l=0, r=0, t=20, b=20))
-st.plotly_chart(fig, use_container_width=True)
+fig.update_layout(
+    showlegend=False,
+    height=400,
+    margin=dict(l=0, r=0, t=20, b=40),
+    xaxis_tickprefix="$",
+    xaxis_title="Total Awarded",
+    yaxis_title="",
+)
+st.plotly_chart(fig, width="stretch")
 
 # ---------- Top individual grants table ----------
 st.header(f"Top 10 individual grants — {selected_agency}, FY{fiscal_year}")
 top_10 = grants.head(10)[["Recipient Name", "Award Amount", "Awarding Sub Agency"]]
 st.dataframe(
     top_10.style.format({"Award Amount": "${:,.0f}"}),
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
 )
