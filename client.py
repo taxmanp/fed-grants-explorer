@@ -1,7 +1,9 @@
 """USAspending.gov API client and helper functions."""
 
-import requests
 import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 BASE_URL = "https://api.usaspending.gov/api/v2"
 
@@ -10,9 +12,36 @@ BASE_URL = "https://api.usaspending.gov/api/v2"
 GRANT_AWARD_TYPES = ["02", "03", "04", "05"]
 
 
+def _build_session() -> requests.Session:
+    """Build a requests Session with automatic retries for transient API errors.
+
+    Retries up to 3 times with exponential backoff (1s, 2s, 4s) on:
+    - Connection failures (network blips, server hangups)
+    - 5xx server errors (500, 502, 503, 504)
+    """
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+# Module-level session: created once when the module is imported,
+# reused for every API call. This is how requests is meant to be used
+# in any code that makes more than a handful of calls.
+_SESSION = _build_session()
+
+
 def get_toptier_agencies() -> pd.DataFrame:
     """List all top-tier federal agencies."""
-    response = requests.get(
+    response = _SESSION.get(
         f"{BASE_URL}/references/toptier_agencies/",
         timeout=30,
     )
@@ -49,7 +78,7 @@ def search_grants(
         "sort": "Award Amount",
         "order": "desc",
     }
-    response = requests.post(
+    response = _SESSION.post(
         f"{BASE_URL}/search/spending_by_award/",
         json=payload,
         timeout=60,

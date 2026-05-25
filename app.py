@@ -1,6 +1,7 @@
 """Streamlit dashboard for the Federal Grants Explorer."""
 
 import plotly.express as px
+import requests
 import streamlit as st
 
 from client import (
@@ -18,8 +19,6 @@ st.set_page_config(
 
 
 # ---------- Cached data loaders ----------
-# These wrap our API calls so Streamlit doesn't refetch on every interaction.
-# ttl = "time to live" in seconds; 3600 = 1 hour.
 @st.cache_data(ttl=3600)
 def load_agencies():
     return get_toptier_agencies()
@@ -42,7 +41,15 @@ st.markdown(
 with st.sidebar:
     st.header("Filters")
 
-    agencies = load_agencies()
+    try:
+        agencies = load_agencies()
+    except requests.exceptions.RequestException:
+        st.error(
+            "⚠️ Couldn't reach USAspending.gov right now. "
+            "This is usually a temporary issue — try refreshing the page in a moment."
+        )
+        st.stop()
+
     agency_options = sorted(agencies["agency_name"].dropna().tolist())
     default_agency = "Department of Health and Human Services"
     default_idx = (
@@ -61,8 +68,15 @@ with st.sidebar:
     )
 
 # ---------- Fetch grants ----------
-with st.spinner(f"Fetching top {grant_limit} grants for {selected_agency}, FY{fiscal_year}..."):
-    grants = load_grants(selected_agency, fiscal_year, grant_limit)
+try:
+    with st.spinner(f"Fetching top {grant_limit} grants for {selected_agency}, FY{fiscal_year}..."):
+        grants = load_grants(selected_agency, fiscal_year, grant_limit)
+except requests.exceptions.RequestException:
+    st.error(
+        f"⚠️ Couldn't fetch grants for {selected_agency} right now. "
+        "USAspending may be having a temporary issue — try refreshing in a moment."
+    )
+    st.stop()
 
 if grants.empty:
     st.warning(f"No grants found for {selected_agency} in FY{fiscal_year}.")
