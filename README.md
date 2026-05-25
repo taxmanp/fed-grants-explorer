@@ -2,23 +2,25 @@
 
 > 🚀 **Live demo:** [fed-grants-explorer-paul.streamlit.app](https://fed-grants-explorer-paul.streamlit.app)
 
-An interactive dashboard for exploring federal grant data from [USAspending.gov](https://www.usaspending.gov/), the official source for U.S. government spending.
+A focused dashboard for exploring federal grant data — built for grants teams, program officers, and analysts who want to ask specific questions without navigating USAspending's full query interface.
 
 ![Dashboard screenshot](docs/dashboard.png)
 
 ## Why this project
 
-I spent several years at the U.S. Department of Health and Human Services negotiating indirect cost rates and managing federal grants. The data on USAspending is uniquely valuable for understanding where federal dollars actually go — but the API isn't friendly to non-developers. This project turns that data into an interactive dashboard that grants officers, program managers, and nonprofit finance teams can actually use.
+[USAspending.gov](https://www.usaspending.gov/) is the canonical source for U.S. federal spending data, but it's built for power users running broad queries. Nonprofit grants teams, federal program officers, and grants consultants often want to answer narrower questions — *"where does this agency's grant money actually flow?"* or *"what does this recipient's federal funding history look like?"* — without wading through a complex multi-screen query interface.
+
+Drawing on my experience in federal grants management at the U.S. Department of Health and Human Services, this project puts focused, audience-specific views on top of USAspending's data. It's not trying to replace USAspending — it's trying to be the right tool when you have a specific question.
 
 ## What it does
 
-Pick any federal agency and fiscal year. The dashboard fetches the top grants from USAspending.gov in real-time and shows:
+The current dashboard answers one question well: **"For agency X in fiscal year Y, where does the grant money go?"** Pick any federal agency and fiscal year to see:
 
-- **Total awarded, unique recipients, and unique sub-agencies** as quick-glance metrics
+- **Quick-glance metrics**: total awarded, unique recipients, unique sub-agencies
 - **A horizontal bar chart** of total grant dollars by sub-agency, revealing how the parent agency's grant budget actually breaks down
-- **A sortable table** of the largest individual grants, with recipient names cleaned up from USAspending's quirky inverted format
+- **A sortable table** of the largest individual grants, with recipient names cleaned up from USAspending's quirky inverted naming format (e.g., `HEALTH CARE SERVICES, CALIFORNIA DEPARTMENT OF` → `CALIFORNIA DEPARTMENT OF HEALTH CARE SERVICES`)
 
-The dashboard runs entirely on free public APIs — no authentication, no API keys, no costs.
+Built entirely on free public APIs — no authentication, no API keys, no costs.
 
 ## Tech stack
 
@@ -53,10 +55,11 @@ uv run streamlit run app.py
 - [x] Sub-agency breakdown using pandas groupby
 - [x] Interactive Streamlit dashboard with sidebar filters
 - [x] Deploy to Streamlit Community Cloud
-- [ ] State + congressional district geography views
-- [ ] Recipient lookup by UEI (Unique Entity Identifier)
-- [ ] CFDA / Assistance Listing program breakdowns
-- [ ] Time-series view across multiple fiscal years
+- [ ] **Recipient lookup**: see all federal awards for a single recipient across agencies and years *(next up)*
+- [ ] **Auto-surfaced insights**: detect funding concentration patterns and explain them in plain English
+- [ ] **Multi-year time series**: track an agency's grant trajectory across fiscal years
+- [ ] **State + congressional district views**: geographic breakdowns with map visualization
+- [ ] **CFDA / Assistance Listing program breakdowns**
 - [ ] Unit tests for the data-cleaning functions
 
 ## Background reading
