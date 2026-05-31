@@ -18,6 +18,67 @@ st.set_page_config(
     layout="wide",
 )
 
+# ---------- Custom styling ----------
+st.markdown(
+    """
+    <style>
+    /* Import editorial-grade fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap');
+
+    /* Modern sans for body */
+    html, body, .stApp, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    /* Sharp serif for headlines — editorial finance look */
+    h1, h2, h3 {
+        font-family: 'IBM Plex Serif', Georgia, serif;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+    }
+    h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+    /* Metric labels: small, uppercase, tracked-out */
+    [data-testid="stMetricLabel"] p {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748B;
+        font-weight: 500;
+    }
+
+    /* Metric values: tabular nums for clean alignment */
+    [data-testid="stMetricValue"] {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        color: #0F172A;
+    }
+
+    /* Tabs: cleaner spacing */
+    button[data-baseweb="tab"] {
+        font-weight: 500;
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    /* Softer dividers */
+    hr {
+        margin: 2rem 0;
+        border-color: #E2E8F0;
+    }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        color: #64748B;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Accent color — keep in sync with .streamlit/config.toml's primaryColor
+ACCENT = "#1E40AF"
+
 
 # ---------- Cached data loaders ----------
 @st.cache_data(ttl=3600)
@@ -39,8 +100,38 @@ def load_grants_by_recipient(
     )
 
 
+# ---------- Shared chart styler ----------
+def styled_bar(df, x_col, y_col, label_x="Total Awarded"):
+    """Horizontal bar chart with our standard branded styling."""
+    fig = px.bar(
+        df,
+        x=x_col,
+        y=y_col,
+        orientation="h",
+        color_discrete_sequence=[ACCENT],
+        labels={x_col: f"{label_x} ($)", y_col: ""},
+    )
+    fig.update_traces(
+        hovertemplate="<b>%{y}</b><br>$%{x:,.0f}<extra></extra>",
+    )
+    fig.update_layout(
+        showlegend=False,
+        height=420,
+        margin=dict(l=0, r=0, t=20, b=40),
+        xaxis_tickprefix="$",
+        xaxis_title=label_x,
+        yaxis_title="",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter", color="#0F172A", size=12),
+        xaxis=dict(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0"),
+        yaxis=dict(gridcolor="#E2E8F0"),
+    )
+    return fig
+
+
 # ---------- Header ----------
-st.title("💰 Federal Grants Explorer")
+st.title("Federal Grants Explorer")
 st.markdown(
     "Interactive view of federal grant spending from "
     "[USAspending.gov](https://www.usaspending.gov/). "
@@ -49,7 +140,7 @@ st.markdown(
 )
 
 # ---------- Tabs ----------
-tab_agency, tab_recipient = st.tabs(["📊 By Agency", "🏢 By Recipient"])
+tab_agency, tab_recipient = st.tabs(["By Agency", "By Recipient"])
 
 
 # ============================================================
@@ -102,36 +193,35 @@ with tab_agency:
     grants = grants.copy()
     grants["Recipient Name"] = grants["Recipient Name"].apply(uninvert_recipient_name)
 
+    st.divider()
+
     m1, m2, m3 = st.columns(3)
     m1.metric("Total awarded", f"${grants['Award Amount'].sum():,.0f}")
     m2.metric("Unique recipients", f"{grants['Recipient Name'].nunique():,}")
     m3.metric("Unique sub-agencies", f"{grants['Awarding Sub Agency'].nunique():,}")
 
-    st.header("Total by sub-agency")
+    st.divider()
+
+    st.subheader("Total by sub-agency")
+    st.caption(
+        f"Sum of award amounts across the top {grant_limit} grants from "
+        f"{selected_agency} in FY{fiscal_year}."
+    )
     summary = (
         grants.groupby("Awarding Sub Agency")["Award Amount"]
         .sum()
         .sort_values(ascending=True)
         .reset_index()
     )
-    fig = px.bar(
-        summary,
-        x="Award Amount",
-        y="Awarding Sub Agency",
-        orientation="h",
-        labels={"Award Amount": "Total Awarded ($)", "Awarding Sub Agency": ""},
-    )
-    fig.update_layout(
-        showlegend=False,
-        height=400,
-        margin=dict(l=0, r=0, t=20, b=40),
-        xaxis_tickprefix="$",
-        xaxis_title="Total Awarded",
-        yaxis_title="",
-    )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(styled_bar(summary, "Award Amount", "Awarding Sub Agency"), width="stretch")
 
-    st.header(f"Top 10 individual grants — {selected_agency}, FY{fiscal_year}")
+    st.divider()
+
+    st.subheader("Top 10 individual grants")
+    st.caption(
+        f"Largest individual grants from {selected_agency} in FY{fiscal_year}, "
+        "by dollar amount."
+    )
     top_10 = grants.head(10)[["Recipient Name", "Award Amount", "Awarding Sub Agency"]]
     st.dataframe(
         top_10.style.format({"Award Amount": "${:,.0f}"}),
@@ -144,7 +234,6 @@ with tab_agency:
 # TAB 2: BY RECIPIENT
 # ============================================================
 with tab_recipient:
-    # Filters
     r1, r2, r3 = st.columns([2, 2, 1])
     with r1:
         recipient_text = st.text_input(
@@ -168,17 +257,15 @@ with tab_recipient:
             step=10,
         )
 
-    # Empty state — wait for user to type something
     if not recipient_text:
         st.info(
-            "👆 **Enter a recipient name above** to see their federal grant history. "
+            "**Enter a recipient name above** to see their federal grant history. "
             "Try `University of California`, `Yale University`, or `American Red Cross`."
         )
         st.stop()
 
     start_year, end_year = year_range
 
-    # Fetch grants for this recipient
     try:
         with st.spinner(
             f"Searching grants matching '{recipient_text}' across FY{start_year}–FY{end_year}..."
@@ -203,48 +290,57 @@ with tab_recipient:
     r_grants = r_grants.copy()
     r_grants["Recipient Name"] = r_grants["Recipient Name"].apply(uninvert_recipient_name)
 
-    # Metrics
+    st.divider()
+
     rm1, rm2, rm3 = st.columns(3)
     rm1.metric("Total funding", f"${r_grants['Award Amount'].sum():,.0f}")
     rm2.metric("Number of awards", f"{len(r_grants):,}")
     rm3.metric("Awarding agencies", f"{r_grants['Awarding Agency'].nunique():,}")
 
-    # Bar chart: total by awarding agency
-    st.header("Total by awarding agency")
+    st.divider()
+
+    st.subheader("Total by awarding agency")
+    st.caption(
+        f"Sum of award amounts to '{recipient_text}' across FY{start_year}–FY{end_year}, "
+        "grouped by top-tier agency."
+    )
     agency_summary = (
         r_grants.groupby("Awarding Agency")["Award Amount"]
         .sum()
         .sort_values(ascending=True)
         .reset_index()
     )
-    fig2 = px.bar(
-        agency_summary,
-        x="Award Amount",
-        y="Awarding Agency",
-        orientation="h",
-        labels={"Award Amount": "Total Awarded ($)", "Awarding Agency": ""},
-    )
-    fig2.update_layout(
-        showlegend=False,
-        height=400,
-        margin=dict(l=0, r=0, t=20, b=40),
-        xaxis_tickprefix="$",
-        xaxis_title="Total Awarded",
-        yaxis_title="",
-    )
-    st.plotly_chart(fig2, width="stretch")
+    st.plotly_chart(styled_bar(agency_summary, "Award Amount", "Awarding Agency"), width="stretch")
 
-    # Individual grants table
-    st.header(f"Individual grants — '{recipient_text}', FY{start_year}–FY{end_year}")
-    display = r_grants[[
-        "Recipient Name",
-        "Award Amount",
-        "Awarding Agency",
-        "Awarding Sub Agency",
-        "Period of Performance Start Date",
-    ]].rename(columns={"Period of Performance Start Date": "Start Date"})
+    st.divider()
+
+    st.subheader("Individual grants")
+    st.caption(
+        f"All grants matching '{recipient_text}' from FY{start_year}–FY{end_year}, "
+        "sorted by amount."
+    )
+    display = (
+        r_grants[[
+            "Recipient Name",
+            "Award Amount",
+            "Awarding Agency",
+            "Awarding Sub Agency",
+            "Period of Performance Start Date",
+        ]]
+        .rename(columns={"Period of Performance Start Date": "Start Date"})
+        .fillna("—")
+    )
     st.dataframe(
         display.style.format({"Award Amount": "${:,.0f}"}),
         width="stretch",
         hide_index=True,
     )
+
+
+# ---------- Footer ----------
+st.divider()
+st.caption(
+    "Data from [USAspending.gov](https://www.usaspending.gov/) · "
+    "Built with [Streamlit](https://streamlit.io/) and [Plotly](https://plotly.com/python/) · "
+    "[Source on GitHub](https://github.com/taxmanp/fed-grants-explorer)"
+)
