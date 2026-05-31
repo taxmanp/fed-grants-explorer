@@ -4,7 +4,7 @@
 
 A focused dashboard for exploring federal grant data — built for grants teams, program officers, and analysts who want to ask specific questions without navigating USAspending's full query interface.
 
-![Dashboard screenshot](docs/dashboard.png)
+![Dashboard — agency view](docs/dashboard.png)
 
 ## Why this project
 
@@ -14,18 +14,22 @@ Drawing on my experience in federal grants management at the U.S. Department of 
 
 ## What it does
 
-The current dashboard answers one question well: **"For agency X in fiscal year Y, where does the grant money go?"** Pick any federal agency and fiscal year to see:
+The dashboard answers two questions:
 
-- **Quick-glance metrics**: total awarded, unique recipients, unique sub-agencies
-- **A horizontal bar chart** of total grant dollars by sub-agency, revealing how the parent agency's grant budget actually breaks down
-- **A sortable table** of the largest individual grants, with recipient names cleaned up from USAspending's quirky inverted naming format (e.g., `HEALTH CARE SERVICES, CALIFORNIA DEPARTMENT OF` → `CALIFORNIA DEPARTMENT OF HEALTH CARE SERVICES`)
+**📊 By Agency:** *"For agency X in fiscal year Y, where does the grant money go?"* Pick any federal agency and fiscal year to see total awarded, the largest individual grants, and the breakdown across sub-agencies.
+
+**🏢 By Recipient:** *"What is this organization's federal funding history?"* Enter a recipient name (full or partial) and a range of fiscal years to see total funding, the breakdown across awarding agencies, and the full list of individual grants. Fuzzy matching means `University of California` catches every UC campus; `American Red Cross` catches all their federal lines.
+
+![Dashboard — recipient view](docs/recipient_view.png)
+
+Both views share the same data-cleaning layer — including a function that auto-detects and flips USAspending's quirky inverted naming format (e.g., `HEALTH CARE SERVICES, CALIFORNIA DEPARTMENT OF` → `CALIFORNIA DEPARTMENT OF HEALTH CARE SERVICES`).
 
 Built entirely on free public APIs — no authentication, no API keys, no costs.
 
 ## Tech stack
 
 - **Python 3.12** with [`uv`](https://docs.astral.sh/uv/) for dependency management
-- [`requests`](https://docs.python-requests.org/) for HTTP calls to the USAspending API
+- [`requests`](https://docs.python-requests.org/) with retries and exponential backoff for resilient HTTP calls to the USAspending API
 - [`pandas`](https://pandas.pydata.org/) for tabular data handling
 - [`streamlit`](https://streamlit.io/) for the interactive dashboard
 - [`plotly`](https://plotly.com/python/) for charts
@@ -55,8 +59,9 @@ uv run streamlit run app.py
 - [x] Sub-agency breakdown using pandas groupby
 - [x] Interactive Streamlit dashboard with sidebar filters
 - [x] Deploy to Streamlit Community Cloud
-- [ ] **Recipient lookup**: see all federal awards for a single recipient across agencies and years *(next up)*
-- [ ] **Auto-surfaced insights**: detect funding concentration patterns and explain them in plain English
+- [x] Resilient HTTP layer with retries + graceful error handling
+- [x] **Recipient lookup**: see all federal awards for a single recipient across agencies and years
+- [ ] **Auto-surfaced insights**: detect funding concentration patterns and explain them in plain English *(next up)*
 - [ ] **Multi-year time series**: track an agency's grant trajectory across fiscal years
 - [ ] **State + congressional district views**: geographic breakdowns with map visualization
 - [ ] **CFDA / Assistance Listing program breakdowns**
