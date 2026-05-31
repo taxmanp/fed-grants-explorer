@@ -7,6 +7,7 @@ import streamlit as st
 from client import (
     get_toptier_agencies,
     search_grants,
+    search_grants_by_recipient,
     uninvert_recipient_name,
 )
 
@@ -27,6 +28,15 @@ def load_agencies():
 @st.cache_data(ttl=3600)
 def load_grants(agency_name: str, fiscal_year: int, limit: int):
     return search_grants(agency_name, fiscal_year, limit=limit)
+
+
+@st.cache_data(ttl=3600)
+def load_grants_by_recipient(
+    recipient_text: str, start_year: int, end_year: int, limit: int
+):
+    return search_grants_by_recipient(
+        recipient_text, start_year, end_year, limit=limit
+    )
 
 
 # ---------- Header ----------
@@ -63,7 +73,6 @@ with tab_agency:
         else 0
     )
 
-    # Filters in a horizontal row
     f1, f2, f3 = st.columns([2, 1, 1])
     with f1:
         selected_agency = st.selectbox("Agency", agency_options, index=default_idx)
@@ -76,7 +85,6 @@ with tab_agency:
             "Top grants to fetch", min_value=10, max_value=100, value=100, step=10
         )
 
-    # Fetch grants
     try:
         with st.spinner(f"Fetching top {grant_limit} grants for {selected_agency}, FY{fiscal_year}..."):
             grants = load_grants(selected_agency, fiscal_year, grant_limit)
@@ -91,17 +99,14 @@ with tab_agency:
         st.warning(f"No grants found for {selected_agency} in FY{fiscal_year}.")
         st.stop()
 
-    # Clean up inverted recipient names
     grants = grants.copy()
     grants["Recipient Name"] = grants["Recipient Name"].apply(uninvert_recipient_name)
 
-    # Metrics
     m1, m2, m3 = st.columns(3)
     m1.metric("Total awarded", f"${grants['Award Amount'].sum():,.0f}")
     m2.metric("Unique recipients", f"{grants['Recipient Name'].nunique():,}")
     m3.metric("Unique sub-agencies", f"{grants['Awarding Sub Agency'].nunique():,}")
 
-    # Sub-agency bar chart
     st.header("Total by sub-agency")
     summary = (
         grants.groupby("Awarding Sub Agency")["Award Amount"]
@@ -126,7 +131,6 @@ with tab_agency:
     )
     st.plotly_chart(fig, width="stretch")
 
-    # Top 10 individual grants table
     st.header(f"Top 10 individual grants — {selected_agency}, FY{fiscal_year}")
     top_10 = grants.head(10)[["Recipient Name", "Award Amount", "Awarding Sub Agency"]]
     st.dataframe(
@@ -137,11 +141,110 @@ with tab_agency:
 
 
 # ============================================================
-# TAB 2: BY RECIPIENT (placeholder, filled in next commit)
+# TAB 2: BY RECIPIENT
 # ============================================================
 with tab_recipient:
-    st.info(
-        "🚧 **Coming next:** enter a recipient name to see all their federal grants "
-        "across every agency over a range of fiscal years. Useful for understanding "
-        "an organization's federal funding mix and how it has evolved over time."
+    # Filters
+    r1, r2, r3 = st.columns([2, 2, 1])
+    with r1:
+        recipient_text = st.text_input(
+            "Recipient name (or UEI)",
+            placeholder="e.g., 'University of California' or 'American Red Cross'",
+            help="USAspending fuzzy-matches against recipient name, UEI, and DUNS. Partial names work.",
+        )
+    with r2:
+        year_range = st.slider(
+            "Fiscal years",
+            min_value=2008,
+            max_value=2026,
+            value=(2020, 2025),
+        )
+    with r3:
+        recipient_limit = st.slider(
+            "Max results",
+            min_value=10,
+            max_value=100,
+            value=100,
+            step=10,
+        )
+
+    # Empty state — wait for user to type something
+    if not recipient_text:
+        st.info(
+            "👆 **Enter a recipient name above** to see their federal grant history. "
+            "Try `University of California`, `Yale University`, or `American Red Cross`."
+        )
+        st.stop()
+
+    start_year, end_year = year_range
+
+    # Fetch grants for this recipient
+    try:
+        with st.spinner(
+            f"Searching grants matching '{recipient_text}' across FY{start_year}–FY{end_year}..."
+        ):
+            r_grants = load_grants_by_recipient(
+                recipient_text, start_year, end_year, recipient_limit
+            )
+    except requests.exceptions.RequestException:
+        st.error(
+            "⚠️ Couldn't fetch grants right now. "
+            "USAspending may be having a temporary issue — try refreshing in a moment."
+        )
+        st.stop()
+
+    if r_grants.empty:
+        st.warning(
+            f"No grants found matching '{recipient_text}' between FY{start_year} and FY{end_year}. "
+            "Try a different spelling, a partial name, or a wider year range."
+        )
+        st.stop()
+
+    r_grants = r_grants.copy()
+    r_grants["Recipient Name"] = r_grants["Recipient Name"].apply(uninvert_recipient_name)
+
+    # Metrics
+    rm1, rm2, rm3 = st.columns(3)
+    rm1.metric("Total funding", f"${r_grants['Award Amount'].sum():,.0f}")
+    rm2.metric("Number of awards", f"{len(r_grants):,}")
+    rm3.metric("Awarding agencies", f"{r_grants['Awarding Agency'].nunique():,}")
+
+    # Bar chart: total by awarding agency
+    st.header("Total by awarding agency")
+    agency_summary = (
+        r_grants.groupby("Awarding Agency")["Award Amount"]
+        .sum()
+        .sort_values(ascending=True)
+        .reset_index()
+    )
+    fig2 = px.bar(
+        agency_summary,
+        x="Award Amount",
+        y="Awarding Agency",
+        orientation="h",
+        labels={"Award Amount": "Total Awarded ($)", "Awarding Agency": ""},
+    )
+    fig2.update_layout(
+        showlegend=False,
+        height=400,
+        margin=dict(l=0, r=0, t=20, b=40),
+        xaxis_tickprefix="$",
+        xaxis_title="Total Awarded",
+        yaxis_title="",
+    )
+    st.plotly_chart(fig2, width="stretch")
+
+    # Individual grants table
+    st.header(f"Individual grants — '{recipient_text}', FY{start_year}–FY{end_year}")
+    display = r_grants[[
+        "Recipient Name",
+        "Award Amount",
+        "Awarding Agency",
+        "Awarding Sub Agency",
+        "Period of Performance Start Date",
+    ]].rename(columns={"Period of Performance Start Date": "Start Date"})
+    st.dataframe(
+        display.style.format({"Award Amount": "${:,.0f}"}),
+        width="stretch",
+        hide_index=True,
     )
