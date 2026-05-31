@@ -86,6 +86,48 @@ def search_grants(
     response.raise_for_status()
     return pd.DataFrame(response.json()["results"])
 
+def search_grants_by_recipient(
+    recipient_text: str,
+    start_fiscal_year: int,
+    end_fiscal_year: int,
+    limit: int = 100,
+) -> pd.DataFrame:
+    """Find grants awarded to a recipient across a range of fiscal years.
+
+    Uses USAspending's `recipient_search_text` filter, which fuzzy-matches
+    against recipient name, UEI, and DUNS. Partial names work — passing
+    'University of California' will match all UC campuses.
+    """
+    payload = {
+        "filters": {
+            "recipient_search_text": [recipient_text],
+            "time_period": [
+                {
+                    "start_date": f"{start_fiscal_year - 1}-10-01",
+                    "end_date": f"{end_fiscal_year}-09-30",
+                }
+            ],
+            "award_type_codes": GRANT_AWARD_TYPES,
+        },
+        "fields": [
+            "Recipient Name",
+            "Award Amount",
+            "Awarding Agency",
+            "Awarding Sub Agency",
+            "Period of Performance Start Date",
+        ],
+        "page": 1,
+        "limit": limit,
+        "sort": "Award Amount",
+        "order": "desc",
+    }
+    response = _SESSION.post(
+        f"{BASE_URL}/search/spending_by_award/",
+        json=payload,
+        timeout=60,
+    )
+    response.raise_for_status()
+    return pd.DataFrame(response.json()["results"])
 
 def uninvert_recipient_name(name: str) -> str:
     """Detect USAspending's inverted name format and flip it to natural order.
