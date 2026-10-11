@@ -1,13 +1,19 @@
 """Streamlit dashboard for the Federal Grants Explorer."""
 
+import math
+
 import plotly.express as px
 import requests
 import streamlit as st
 
 from client import (
+    APIDataError,
+    MIN_FISCAL_YEAR,
+    current_fiscal_year,
+    get_period_obligations,
     get_toptier_agencies,
-    search_grants,
-    search_grants_by_recipient,
+    grant_filters,
+    search_awards,
     uninvert_recipient_name,
 )
 
@@ -68,9 +74,11 @@ st.markdown(
     }
 
     /* Captions */
-    [data-testid="stCaptionContainer"] {
-        color: #64748B;
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p {
+        color: #475569;
     }
+    [data-testid="stCaptionContainer"] { opacity: 1; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -87,260 +95,188 @@ def load_agencies():
 
 
 @st.cache_data(ttl=3600)
-def load_grants(agency_name: str, fiscal_year: int, limit: int):
-    return search_grants(agency_name, fiscal_year, limit=limit)
+def load_awards(filters, limit):
+    return search_awards(filters, max_results=limit)
 
 
 @st.cache_data(ttl=3600)
-def load_grants_by_recipient(
-    recipient_text: str, start_year: int, end_year: int, limit: int
-):
-    return search_grants_by_recipient(
-        recipient_text, start_year, end_year, limit=limit
-    )
+def load_obligations(filters):
+    return get_period_obligations(filters)
 
 
-# ---------- Shared chart styler ----------
-def styled_bar(df, x_col, y_col, label_x="Total Awarded"):
-    """Horizontal bar chart with our standard branded styling."""
-    fig = px.bar(
-        df,
-        x=x_col,
-        y=y_col,
-        orientation="h",
-        color_discrete_sequence=[ACCENT],
-        labels={x_col: f"{label_x} ($)", y_col: ""},
-    )
-    fig.update_traces(
-        hovertemplate="<b>%{y}</b><br>$%{x:,.0f}<extra></extra>",
-    )
-    fig.update_layout(
-        showlegend=False,
-        height=420,
-        margin=dict(l=0, r=0, t=20, b=40),
-        xaxis_tickprefix="$",
-        xaxis_title=label_x,
-        yaxis_title="",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter", color="#0F172A", size=12),
-        xaxis=dict(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0"),
-        yaxis=dict(gridcolor="#E2E8F0"),
-    )
+def styled_bar(df, x_col, y_col, label_x="Lifetime obligations"):
+    fig = px.bar(df, x=x_col, y=y_col, orientation="h",
+                 color_discrete_sequence=[ACCENT], labels={x_col: f"{label_x} ($)", y_col: ""})
+    fig.update_traces(hovertemplate="<b>%{y}</b><br>$%{x:,.0f}<extra></extra>")
+    fig.update_layout(showlegend=False, height=420, margin=dict(l=0, r=0, t=20, b=40),
+                      xaxis_tickprefix="$", xaxis_title=label_x, yaxis_title="",
+                      plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                      font=dict(family="Inter", color="#0F172A", size=12),
+                      xaxis=dict(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0"),
+                      yaxis=dict(gridcolor="#E2E8F0"))
     return fig
 
 
-# ---------- Header ----------
-st.title("Federal Grants Explorer")
-st.markdown(
-    "Interactive view of federal grant spending from "
-    "[USAspending.gov](https://www.usaspending.gov/). "
-    "Explore by **agency** to see where federal grant dollars flow, "
-    "or by **recipient** to see an organization's federal funding history."
-)
-
-# ---------- Tabs ----------
-tab_agency, tab_recipient = st.tabs(["By Agency", "By Recipient"])
-
-
-# ============================================================
-# TAB 1: BY AGENCY
-# ============================================================
-with tab_agency:
-    try:
-        agencies = load_agencies()
-    except requests.exceptions.RequestException:
-        st.error(
-            "⚠️ Couldn't reach USAspending.gov right now. "
-            "This is usually a temporary issue — try refreshing the page in a moment."
-        )
-        st.stop()
-
-    agency_options = sorted(agencies["agency_name"].dropna().tolist())
-    default_agency = "Department of Health and Human Services"
-    default_idx = (
-        agency_options.index(default_agency)
-        if default_agency in agency_options
-        else 0
-    )
-
-    f1, f2, f3 = st.columns([2, 1, 1])
-    with f1:
-        selected_agency = st.selectbox("Agency", agency_options, index=default_idx)
-    with f2:
-        fiscal_year = st.number_input(
-            "Fiscal Year", min_value=2008, max_value=2026, value=2024, step=1
-        )
-    with f3:
-        grant_limit = st.slider(
-            "Top grants to fetch", min_value=10, max_value=100, value=100, step=10
-        )
-
-    try:
-        with st.spinner(f"Fetching top {grant_limit} grants for {selected_agency}, FY{fiscal_year}..."):
-            grants = load_grants(selected_agency, fiscal_year, grant_limit)
-    except requests.exceptions.RequestException:
-        st.error(
-            f"⚠️ Couldn't fetch grants for {selected_agency} right now. "
-            "USAspending may be having a temporary issue — try refreshing in a moment."
-        )
-        st.stop()
-
-    if grants.empty:
-        st.warning(f"No grants found for {selected_agency} in FY{fiscal_year}.")
-        st.stop()
-
-    grants = grants.copy()
-    grants["Recipient Name"] = grants["Recipient Name"].apply(uninvert_recipient_name)
-
+def render_results(filters, limit, start_year, end_year, label, key, group_column):
     st.divider()
+    st.subheader(label)
+    period = filters["time_period"][0]
+    st.caption(f"Selected dates: {period['start_date']} through {period['end_date']} (inclusive).")
+    if end_year == current_fiscal_year():
+        st.info(f"FY{end_year} is still in progress. Current-year totals reflect reported activity so far and may lag.")
+    if st.button("Refresh these results", key=f"{key}_refresh"):
+        load_awards.clear(filters, limit)
+        load_obligations.clear(filters)
+
+    total, result = None, None
+    # Independent requests: neither failure can silently turn into zero or a sample sum.
+    with st.spinner("Loading fiscal-period totals and award details..."):
+        try:
+            total = load_obligations(filters)
+        except (requests.RequestException, APIDataError):
+            st.error("Fiscal-period obligations are unavailable. Award details may still load; use Refresh to retry.")
+        try:
+            result = load_awards(filters, limit)
+        except (requests.RequestException, APIDataError):
+            st.error("Award details could not be loaded or validated. Use Refresh to retry.")
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total awarded", f"${grants['Award Amount'].sum():,.0f}")
-    m2.metric("Unique recipients", f"{grants['Recipient Name'].nunique():,}")
-    m3.metric("Unique sub-agencies", f"{grants['Awarding Sub Agency'].nunique():,}")
+    m1.metric("Period net obligations", f"${total.total:,.0f}" if total is not None else "Unavailable")
+    m2.metric("Awards loaded", f"{len(result.awards):,}" if result is not None else "Unavailable")
+    m3.metric("Loaded awards: lifetime obligations",
+              f"${math.fsum(result.awards['Award Amount']):,.0f}" if result is not None else "Unavailable")
+    st.caption("Period net obligations include obligations and deobligations on matching grant transactions "
+               "dated within the selection. This is an API-wide aggregate, independent of the award-list limit. "
+               "Obligations are commitments, not payments or outlays.")
+    if total is not None:
+        st.caption(f"Transaction aggregate retrieved {total.fetched_at}; cached for up to one hour.")
+        if start_year != end_year:
+            st.subheader("Net obligations by fiscal year")
+            annual = total.by_fiscal_year.copy()
+            annual["Fiscal year"] = annual["Fiscal year"].map(lambda year: f"FY{year}")
+            st.plotly_chart(styled_bar(annual, "Net obligations", "Fiscal year", "Period net obligations"),
+                            width="stretch", key=f"{key}_years")
 
-    st.divider()
+    if result is not None:
+        coverage = f"{len(result.awards):,} unique awards loaded across {result.pages_loaded} page(s). {result.reason}"
+        if result.complete:
+            st.info(coverage)
+        else:
+            st.warning(coverage + " Charts and lifetime sums describe only these loaded awards.")
+        st.caption(f"Award details retrieved {result.fetched_at}; cached for up to one hour.")
+        st.caption("The award list uses USAspending's activity-span overlap search: latest transaction date "
+                   "on or after the selection's start and base award date on or before its end. "
+                   "A listed award may have no transaction within the selected period. Lifetime amounts can "
+                   "include activity before and after that period, so these two dollar metrics do not reconcile.")
+        if result.awards.empty:
+            st.info("No award rows were returned for this search. This does not replace the transaction total above.")
+        else:
+            grants = result.awards.copy()
+            # Keep missing agencies in the chart, rather than silently dropping their dollars.
+            grants[group_column] = grants[group_column].fillna("Unknown agency")
+            summary = (grants.groupby(group_column, dropna=False)["Award Amount"].sum()
+                       .sort_values().reset_index())
+            st.subheader(f"Loaded awards by {'sub-agency' if key == 'agency' else 'awarding agency'}")
+            st.caption("Sum of lifetime obligations among loaded awards only. Broad searches may be partial.")
+            st.plotly_chart(styled_bar(summary, "Award Amount", group_column),
+                            width="stretch", key=f"{key}_agencies")
+            st.subheader("Loaded award details")
+            st.caption("Sorted by lifetime obligations. Start date is the period-of-performance start, "
+                       "not the transaction date. Names are reformatted for readability; UEIs and award IDs "
+                       "help distinguish organizations and awards.")
+            display = grants.rename(columns={"Award Amount": "Lifetime obligations",
+                                              "Start Date": "Performance start date"}).copy()
+            display["Recipient Name"] = display["Recipient Name"].apply(uninvert_recipient_name)
+            st.dataframe(display[["Award ID", "Recipient Name", "Recipient UEI", "Lifetime obligations",
+                                  "Awarding Agency", "Awarding Sub Agency", "Performance start date"]],
+                         column_config={"Lifetime obligations": st.column_config.NumberColumn(format="dollar")},
+                         width="stretch", hide_index=True)
+    messages = list(dict.fromkeys((total.messages if total else ()) + (result.messages if result else ())))
+    if messages:
+        with st.expander("USAspending response notices"):
+            for message in messages:
+                st.write(message)
 
-    st.subheader("Total by sub-agency")
-    st.caption(
-        f"Sum of award amounts across the top {grant_limit} grants from "
-        f"{selected_agency} in FY{fiscal_year}."
-    )
-    summary = (
-        grants.groupby("Awarding Sub Agency")["Award Amount"]
-        .sum()
-        .sort_values(ascending=True)
-        .reset_index()
-    )
-    st.plotly_chart(styled_bar(summary, "Award Amount", "Awarding Sub Agency"), width="stretch")
 
-    st.divider()
-
-    st.subheader("Top 10 individual grants")
-    st.caption(
-        f"Largest individual grants from {selected_agency} in FY{fiscal_year}, "
-        "by dollar amount."
-    )
-    top_10 = grants.head(10)[["Recipient Name", "Award Amount", "Awarding Sub Agency"]]
-    st.dataframe(
-        top_10.style.format({"Award Amount": "${:,.0f}"}),
-        width="stretch",
-        hide_index=True,
-    )
-
-
-# ============================================================
-# TAB 2: BY RECIPIENT
-# ============================================================
-with tab_recipient:
-    r1, r2, r3 = st.columns([2, 2, 1])
-    with r1:
-        recipient_text = st.text_input(
-            "Recipient name (or UEI)",
-            placeholder="e.g., 'University of California' or 'American Red Cross'",
-            help="USAspending fuzzy-matches against recipient name, UEI, and DUNS. Partial names work.",
-        )
-    with r2:
-        year_range = st.slider(
-            "Fiscal years",
-            min_value=2008,
-            max_value=2026,
-            value=(2020, 2025),
-        )
-    with r3:
-        recipient_limit = st.slider(
-            "Max results",
-            min_value=10,
-            max_value=100,
-            value=100,
-            step=10,
-        )
-
-    if not recipient_text:
-        st.info(
-            "**Enter a recipient name above** to see their federal grant history. "
-            "Try `University of California`, `Yale University`, or `American Red Cross`."
-        )
-        st.stop()
-
-    start_year, end_year = year_range
-
+def render_agency():
     try:
-        with st.spinner(
-            f"Searching grants matching '{recipient_text}' across FY{start_year}–FY{end_year}..."
-        ):
-            r_grants = load_grants_by_recipient(
-                recipient_text, start_year, end_year, recipient_limit
-            )
-    except requests.exceptions.RequestException:
-        st.error(
-            "⚠️ Couldn't fetch grants right now. "
-            "USAspending may be having a temporary issue — try refreshing in a moment."
-        )
-        st.stop()
-
-    if r_grants.empty:
-        st.warning(
-            f"No grants found matching '{recipient_text}' between FY{start_year} and FY{end_year}. "
-            "Try a different spelling, a partial name, or a wider year range."
-        )
-        st.stop()
-
-    r_grants = r_grants.copy()
-    r_grants["Recipient Name"] = r_grants["Recipient Name"].apply(uninvert_recipient_name)
-
-    st.divider()
-
-    rm1, rm2, rm3 = st.columns(3)
-    rm1.metric("Total funding", f"${r_grants['Award Amount'].sum():,.0f}")
-    rm2.metric("Number of awards", f"{len(r_grants):,}")
-    rm3.metric("Awarding agencies", f"{r_grants['Awarding Agency'].nunique():,}")
-
-    st.divider()
-
-    st.subheader("Total by awarding agency")
-    st.caption(
-        f"Sum of award amounts to '{recipient_text}' across FY{start_year}–FY{end_year}, "
-        "grouped by top-tier agency."
-    )
-    agency_summary = (
-        r_grants.groupby("Awarding Agency")["Award Amount"]
-        .sum()
-        .sort_values(ascending=True)
-        .reset_index()
-    )
-    st.plotly_chart(styled_bar(agency_summary, "Award Amount", "Awarding Agency"), width="stretch")
-
-    st.divider()
-
-    st.subheader("Individual grants")
-    st.caption(
-        f"All grants matching '{recipient_text}' from FY{start_year}–FY{end_year}, "
-        "sorted by amount."
-    )
-    display = (
-        r_grants[[
-            "Recipient Name",
-            "Award Amount",
-            "Awarding Agency",
-            "Awarding Sub Agency",
-            "Period of Performance Start Date",
-        ]]
-        .rename(columns={"Period of Performance Start Date": "Start Date"})
-        .fillna("—")
-    )
-    st.dataframe(
-        display.style.format({"Award Amount": "${:,.0f}"}),
-        width="stretch",
-        hide_index=True,
-    )
+        agencies = load_agencies()
+    except (requests.RequestException, APIDataError):
+        st.error("The agency directory could not be loaded. Recipient search is still available.")
+        if st.button("Retry agency directory"):
+            load_agencies.clear()
+            st.rerun()
+        return
+    options = sorted(agencies["agency_name"].dropna().unique().tolist())
+    if not options:
+        st.warning("USAspending returned an empty agency directory. Recipient search is still available.")
+        if st.button("Retry agency directory"):
+            load_agencies.clear()
+            st.rerun()
+        return
+    default = "Department of Health and Human Services"
+    with st.form("agency_filters"):
+        f1, f2, f3 = st.columns([2, 1, 1])
+        agency = f1.selectbox("Agency", options, index=options.index(default) if default in options else 0)
+        year = f2.number_input("Fiscal year", min_value=MIN_FISCAL_YEAR, max_value=current_fiscal_year(),
+                               value=current_fiscal_year() - 1, step=1)
+        limit = f3.selectbox("Award detail limit", [100, 250, 500, 1000],
+                             help="Only the award list and its lifetime summaries use this cap. Period totals do not.")
+        submitted = st.form_submit_button("Explore agency")
+    if submitted:
+        st.session_state["agency_query"] = (agency, year, limit)
+    if "agency_query" not in st.session_state:
+        st.info("Choose an agency and fiscal year, then select Explore agency.")
+        return
+    agency, year, limit = st.session_state["agency_query"]
+    render_results(grant_filters(year, year, agency_name=agency), limit, year, year,
+                   f"{agency} · FY{year}", "agency", "Awarding Sub Agency")
 
 
-# ---------- Footer ----------
+def render_recipient():
+    with st.form("recipient_filters"):
+        r1, r2, r3 = st.columns([2, 2, 1])
+        text = r1.text_input("Recipient or parent name / UEI", placeholder="e.g., University of California",
+                             help="USAspending searches recipient and parent-recipient names, UEIs, and DUNS. "
+                                  "Results can include multiple organizations; a name search is not verified identity.")
+        years = r2.slider("Fiscal years", min_value=MIN_FISCAL_YEAR, max_value=current_fiscal_year(),
+                           value=(max(MIN_FISCAL_YEAR, current_fiscal_year() - 6), current_fiscal_year() - 1))
+        limit = r3.selectbox("Award detail limit", [100, 250, 500, 1000], key="recipient_limit")
+        submitted = st.form_submit_button("Search recipients")
+    st.caption("Text matching can include parent organizations and several recipients. Check names and UEIs; "
+               "results are not a guaranteed complete funding history for one organization.")
+    if submitted:
+        if not text.strip():
+            st.session_state.pop("recipient_query", None)
+            st.warning("Enter a recipient name or UEI to search.")
+            return
+        st.session_state["recipient_query"] = (text.strip(), years[0], years[1], limit)
+    if "recipient_query" not in st.session_state:
+        st.info("Enter a recipient or parent name / UEI, then select Search recipients.")
+        return
+    text, start, end, limit = st.session_state["recipient_query"]
+    render_results(grant_filters(start, end, recipient_text=text), limit, start, end,
+                   f"Matches for {text} · FY{start}–FY{end}", "recipient", "Awarding Agency")
+
+
+st.title("Federal Grants Explorer")
+st.markdown("Explore federal grant obligations from [USAspending.gov](https://www.usaspending.gov/) "
+            "by awarding agency or recipient search. Compare fiscal-period activity with individual award details.")
+with st.expander("What these numbers mean"):
+    st.write("Includes prime grants and cooperative agreements (award types 02–05) from FY2008 onward. "
+             "Period totals use transaction action dates; award detail amounts are cumulative lifetime obligations. "
+             "The award list loads at most 1,000 records, with explicit partial-result warnings. "
+             "Negative obligations are retained. This explorer is not an accounting reconciliation or a data download.")
+    st.write("A federal fiscal year runs October 1 through September 30. "
+             "The current fiscal year is incomplete; reporting and later corrections can change historical totals.")
+
+agency_tab, recipient_tab = st.tabs(["By Agency", "By Recipient"])
+with agency_tab:
+    render_agency()
+with recipient_tab:
+    render_recipient()
+
 st.divider()
-st.caption(
-    "Data from [USAspending.gov](https://www.usaspending.gov/) · "
-    "Built with [Streamlit](https://streamlit.io/) and [Plotly](https://plotly.com/python/) · "
-    "[Source on GitHub](https://github.com/taxmanp/fed-grants-explorer)"
-)
+st.caption("Data from [USAspending.gov](https://www.usaspending.gov/) · "
+           "Built with [Streamlit](https://streamlit.io/) and [Plotly](https://plotly.com/python/) · "
+           "[Source on GitHub](https://github.com/taxmanp/fed-grants-explorer)")
