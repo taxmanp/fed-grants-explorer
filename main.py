@@ -1,32 +1,29 @@
-"""Command-line entry point for the Federal Grants Explorer.
+"""Command-line example. Run with: uv run python main.py"""
 
-Run with: uv run python main.py
-"""
+import requests
 
-from client import search_grants, format_grants_for_display
+from client import APIDataError, format_grants_for_display, get_period_obligations, grant_filters, search_awards
 
 
 def main() -> None:
-    print("Fetching HHS grants for FY2024 (top 100 by dollar amount)...\n")
-    grants = search_grants(
-        "Department of Health and Human Services", 2024, limit=100
-    )
-
-    print("Top 10 individual grants:\n")
-    print(format_grants_for_display(grants.head(10)))
-
-    print("\n\nTotal awarded by HHS sub-agency (across the top 100 grants):\n")
-    summary = (
-        grants.groupby("Awarding Sub Agency")["Award Amount"]
-        .sum()
-        .sort_values(ascending=False)
-        .reset_index()
-        .rename(columns={"Award Amount": "Total Awarded"})
-    )
-    print(summary.to_string(
-        index=False,
-        formatters={"Total Awarded": "${:,.0f}".format},
-    ))
+    filters = grant_filters(2024, 2024, agency_name="Department of Health and Human Services")
+    print("HHS / FY2024 (2023-10-01 through 2024-09-30)\n")
+    try:
+        total = get_period_obligations(filters)
+        print(f"Period net transaction obligations: ${total.total:,.0f}")
+    except (requests.RequestException, APIDataError):
+        print("Period net obligations: unavailable (not replaced with a sample sum).")
+    try:
+        result = search_awards(filters, max_results=100)
+    except (requests.RequestException, APIDataError):
+        print("Award details could not be loaded or validated.")
+        return
+    print(f"\n{len(result.awards)} awards loaded. {result.reason}")
+    print("Award search uses activity-span overlap; amounts below are lifetime obligations, not FY spending.")
+    if not result.awards.empty:
+        print("\nLargest 10 among loaded awards:\n")
+        print(format_grants_for_display(result.awards.head(10)))
+    print(f"\nAward data retrieved {result.fetched_at}.")
 
 
 if __name__ == "__main__":
