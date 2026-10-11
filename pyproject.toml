@@ -1,7 +1,7 @@
 [project]
 name = "fed-grants-explorer"
 version = "0.1.0"
-description = "Add your description here"
+description = "Explore federal grant transaction obligations and bounded award details from USAspending."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
