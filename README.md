@@ -4,8 +4,6 @@
 
 A focused dashboard for grants teams, program officers, and analysts exploring federal grant obligations by awarding agency or recipient search. Built from experience in federal grants management at the U.S. Department of Health and Human Services.
 
-> This branch corrects metric definitions and result coverage. The live demo may still run an earlier version until these changes are reviewed and deployed.
-
 ## What it does
 
 - **By Agency:** Choose an awarding agency and federal fiscal year. See net obligations on matching transactions in that period, then explore a bounded list of individual awards and their lifetime obligations by sub-agency.
@@ -78,7 +76,7 @@ uv run python -m compileall -q app.py client.py main.py tests
 uv run streamlit run tests/preview_app.py
 ```
 
-The suite runs offline with mocked responses; no API key or live data is needed. Client tests cover pagination, caps, cursors, errors/schema drift, fiscal-year boundaries, negative obligations, aggregate semantics, and display helpers. Streamlit AppTest tests cover both views, independent source failures, partial and empty results, refresh/repeated submissions, blank recipient searches, and current-year warnings. Mocks are not live API verification; see `docs/verification.md` for this branch's actual checks and limits.
+The suite runs offline with mocked responses; no API key or live data is needed. Client tests cover pagination, caps, cursors, errors/schema drift, fiscal-year boundaries, negative obligations, aggregate semantics, and display helpers. Streamlit AppTest tests cover both views, independent source failures, partial and empty results, refresh/repeated submissions, blank recipient searches, and current-year warnings. Mocks are not live API verification; see `docs/verification.md` for the pre-release and live-deployment checks and their limits.
 
 Dependencies are captured in `uv.lock`. No SQL/database is required for this API-backed design. No deployment or publication is performed by the test commands.
 
